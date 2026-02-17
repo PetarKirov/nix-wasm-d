@@ -12,6 +12,18 @@ indent_size = 2
 [*.{d,h,hpp,c,cpp,cxx,cs,hs,java,kt,py,rs,sol,sdl}]
 indent_size = 4
 
+[*.d]
+max_line_length = 120
+dfmt_brace_style = allman
+dfmt_soft_max_line_length = 80
+dfmt_align_switch_statements = true
+dfmt_space_after_cast = true
+dfmt_selective_import_space = true
+dfmt_compact_labeled_statements = true
+dfmt_template_constraint_style = conditional_newline_indent
+dfmt_single_template_constraint_indent = false
+dfmt_keep_line_breaks = false
+
 [{dub.selections.json,Makefile,go.mod,go.sum,*.go,.gitmodules}]
 indent_style = tab
 indent_size = 4

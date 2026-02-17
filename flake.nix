@@ -10,15 +10,34 @@
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
+
+    git-hooks-nix = {
+      url = "github:cachix/git-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     { flake-parts, ... }@inputs:
     flake-parts.lib.mkFlake { inherit inputs; } {
+      imports = [
+        inputs.git-hooks-nix.flakeModule
+
+        ./nix/checks/pre-commit.nix
+      ];
+
       systems = [ "x86_64-linux" ];
 
       perSystem =
-        { pkgs, inputs', ... }:
+        {
+          config,
+          pkgs,
+          inputs',
+          ...
+        }:
+        let
+          inherit (config.pre-commit.settings) enabledPackages package configFile;
+        in
         {
           devShells.default = pkgs.mkShell {
             packages = [
@@ -28,7 +47,14 @@
               pkgs.wabt
               pkgs.dformat
               inputs'.nix-src.packages.nix-cli
-            ];
+            ]
+            ++ enabledPackages
+            ++ [ package ];
+
+            shellHook = ''
+              ln -fvs ${configFile} .pre-commit-config.yaml
+            ''
+            + config.pre-commit.installationScript;
           };
         };
     };

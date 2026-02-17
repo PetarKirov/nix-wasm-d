@@ -26,6 +26,7 @@
               pkgs.dub
               pkgs.lld
               pkgs.wabt
+              pkgs.dformat
               inputs'.nix-src.packages.nix-cli
             ];
           };

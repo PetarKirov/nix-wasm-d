@@ -1,0 +1,4 @@
+{
+    "defaultArchitecture": "wasm32-unknown-unknown-wasm",
+    "defaultCompiler": "ldc2"
+}

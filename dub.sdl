@@ -1,0 +1,31 @@
+name "nix-wasm"
+description "Extending Nix with D via `builtins.wasm`"
+license "MIT"
+
+targetType "none"
+
+subPackage {
+    name "json"
+    targetType "executable"
+    targetName "json"
+    targetPath "build"
+    sourcePaths
+    sourceFiles "src/nix_wasm/builtins/json.d" "src/nix_wasm/package.d"
+
+    buildOptions "betterC"
+    dflags "-fvisibility=hidden" platform="ldc"
+    lflags "-allow-undefined" "--no-entry" "--export-dynamic" platform="ldc"
+}
+
+subPackage {
+    name "strings"
+    targetType "executable"
+    targetName "strings"
+    targetPath "build"
+    sourcePaths
+    sourceFiles "src/nix_wasm/builtins/strings.d" "src/nix_wasm/package.d"
+
+    buildOptions "betterC"
+    dflags "-fvisibility=hidden" platform="ldc"
+    lflags "-allow-undefined" "--no-entry" "--export-dynamic" platform="ldc"
+}

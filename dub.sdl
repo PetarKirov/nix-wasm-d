@@ -10,7 +10,7 @@ subPackage {
     targetName "json"
     targetPath "build"
     sourcePaths
-    sourceFiles "src/nix_wasm/builtins/json.d" "src/nix_wasm/package.d"
+    sourceFiles "src/nix_wasm/builtins/json.d" "src/nix_wasm/package.d" "src/nix_wasm/memory.d"
 
     buildOptions "betterC"
     dflags "-fvisibility=hidden" platform="ldc"
@@ -23,7 +23,7 @@ subPackage {
     targetName "strings"
     targetPath "build"
     sourcePaths
-    sourceFiles "src/nix_wasm/builtins/strings.d" "src/nix_wasm/package.d"
+    sourceFiles "src/nix_wasm/builtins/strings.d" "src/nix_wasm/package.d" "src/nix_wasm/memory.d"
 
     buildOptions "betterC"
     dflags "-fvisibility=hidden" platform="ldc"

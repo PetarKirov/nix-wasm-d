@@ -12,6 +12,8 @@ module nix_wasm;
 
 import ldc.attributes;
 
+public import nix_wasm.memory;
+
 /// Opaque handle identifying a Nix value managed by the host evaluator.
 alias ValueId = uint;
 
@@ -125,49 +127,33 @@ T[] makeArrayOrPanic(T)(ref WasmAllocator a, size_t count)
     return result;
 }
 
-/// Copies variable-length data from the host into the arena.
-///
-/// Uses a stack buffer for the initial probe; falls back to an
-/// arena allocation when the data exceeds the stack buffer.
-private const(char)[] copyToArena(alias copyFn, size_t stackSize = 256)(ValueId id,
-        ref WasmAllocator a)
+/// Queries the host for the data length, allocates in the arena, and
+/// copies in a single pass.  Works for any host copy function that
+/// returns the actual length when called with `(id, null, 0)`.
+private const(char)[] copyFromHost(alias copyFn)(ValueId id, ref WasmAllocator arena)
 {
-    char[stackSize] stackBuf = void;
-    size_t len = copyFn(id, stackBuf.ptr, stackBuf.length);
-
-    if (len > stackBuf.length)
-    {
-        char[] buf = makeArrayOrPanic!char(a, len);
-        size_t len2 = copyFn(id, buf.ptr, len);
-        if (len2 != len)
-            nixPanic("length mismatch");
-        return buf[0 .. len];
-    }
-
-    char[] result = makeArrayOrPanic!char(a, len);
-    result[0 .. len] = stackBuf[0 .. len];
-    return result[0 .. len];
+    size_t len = copyFn(id, null, 0);
+    if (len == 0)
+        return null;
+    char[] buf = makeArrayOrPanic!char(arena, len);
+    size_t len2 = copyFn(id, buf.ptr, len);
+    if (len2 != len)
+        nixPanic("length mismatch");
+    return buf[0 .. len];
 }
 
-/// Copies a variable-length array of `Value` from the host into the arena.
-private Value[] copyValuesToArena(alias copyFn, size_t stackCount = 64)(ValueId id,
-        ref WasmAllocator a)
+/// Queries the host for the element count, allocates in the arena, and
+/// copies in a single pass.
+private Value[] copyValuesFromHost(alias copyFn)(ValueId id, ref WasmAllocator arena)
 {
-    Value[stackCount] stackBuf = void;
-    size_t len = copyFn(id, stackBuf.ptr, stackBuf.length);
-
-    if (len > stackBuf.length)
-    {
-        Value[] buf = makeArrayOrPanic!Value(a, len);
-        size_t len2 = copyFn(id, buf.ptr, len);
-        if (len2 != len)
-            nixPanic("length mismatch");
-        return buf[0 .. len];
-    }
-
-    Value[] result = makeArrayOrPanic!Value(a, len);
-    result[0 .. len] = stackBuf[0 .. len];
-    return result[0 .. len];
+    size_t len = copyFn(id, null, 0);
+    if (len == 0)
+        return null;
+    Value[] buf = makeArrayOrPanic!Value(arena, len);
+    size_t len2 = copyFn(id, buf.ptr, len);
+    if (len2 != len)
+        nixPanic("length mismatch");
+    return buf[0 .. len];
 }
 
 /**
@@ -200,13 +186,13 @@ struct Value
     static Value makeString(const(char)[] s) => make_string(s.ptr, s.length);
 
     /// Returns the string content of this value as an arena-backed slice.
-    const(char)[] getString(ref WasmAllocator a) => copyToArena!copy_string(id, a);
+    const(char)[] getString(ref WasmAllocator a) => copyFromHost!copy_string(id, a);
 
     /// Constructs a Nix path value relative to this base path.
     Value makePath(const(char)[] rel) => make_path(id, rel.ptr, rel.length);
 
     /// Returns the path string of this value as an arena-backed slice.
-    const(char)[] getPath(ref WasmAllocator a) => copyToArena!copy_path(id, a);
+    const(char)[] getPath(ref WasmAllocator a) => copyFromHost!copy_path(id, a);
 
     /// Constructs a Nix boolean value.
     static Value makeBool(bool b) => make_bool(b ? 1 : 0);
@@ -221,7 +207,7 @@ struct Value
     static Value makeList(const(Value)[] items) => make_list(items.ptr, items.length);
 
     /// Returns the list elements as an arena-backed slice.
-    Value[] getList(ref WasmAllocator a) => copyValuesToArena!copy_list(id, a);
+    Value[] getList(ref WasmAllocator a) => copyValuesFromHost!copy_list(id, a);
 
     /// Constructs a Nix attribute set from name-value pairs.
     static Value makeAttrset(ref WasmAllocator allocator, const(AttrEntry)[] attrs)
@@ -293,175 +279,7 @@ struct Value
     Value lazyCall(const(Value)[] args) => make_app(id, args.ptr, args.length);
 
     /// Reads the file at this path value, returning an arena-backed slice.
-    const(char)[] readFile(ref WasmAllocator a) => copyToArena!(read_file, 1024)(id, a);
-}
-
-/**
-Bump-pointer region allocator for WASM, modelled after
-$(LINK2 https://dlang.org/phobos/std_experimental_allocator_building_blocks_region.html,
-`std.experimental.allocator.building_blocks.region.InSituRegion`).
-
-A `Region` manages a caller-supplied contiguous block of memory as a
-simple bump-the-pointer allocator. Individual deallocations are not
-supported; instead the entire region is released at once via
-$(LREF deallocateAll).
-
-Unlike the previous `WasmAllocator`, the backing storage is *not*
-embedded as a `static` member. A module-level `__gshared` arena
-($(LREF wasmArena)) lives in WASM linear memory, and each `Region`
-is a lightweight handle into that arena.
-
-Params:
-    minAlign = minimum alignment for all returned allocations;
-        must be a positive power of two
-
-See_Also:
-    $(LREF wasmArena), $(LREF WasmAllocator)
-*/
-struct Region(uint minAlign = 8)
-{
-    static assert(minAlign > 0 && (minAlign & (minAlign - 1)) == 0,
-            "minAlign must be a positive power of two");
-
-    /// The alignment guarantee for all allocations.
-    enum alignment = minAlign;
-
-    private ubyte* base;
-    private size_t cap;
-    private size_t offset;
-
-    /// Disable copying — the allocator is a unique handle.
-    @disable this(this);
-
-    /**
-    Initialises this region to manage the buffer at `store`.
-
-    Params:
-        store = contiguous memory block to allocate from
-    */
-    void initialize(ubyte[] store) nothrow @nogc
-    {
-        base = store.ptr;
-        cap = store.length;
-        offset = 0;
-    }
-
-    /**
-    Allocates `n` bytes with at least $(LREF alignment)-byte alignment.
-
-    Params:
-        n = number of bytes requested
-
-    Returns:
-        A slice of exactly `n` bytes, or a zero-length slice with
-        `null` `.ptr` if the region cannot satisfy the request.
-    */
-    void[] allocate(size_t n) nothrow @nogc
-    {
-        if (n == 0)
-            return (cast(void*) base)[0 .. 0];
-
-        enum a = minAlign;
-        size_t alignedOff = (offset + (a - 1)) & ~(cast(size_t)(a - 1));
-        if (alignedOff + n > cap)
-            return null;
-
-        void[] result = (cast(void*)(base + alignedOff))[0 .. n];
-        offset = alignedOff + n;
-        return result;
-    }
-
-    /**
-    Releases all allocations, resetting the region to empty.
-
-    Returns: Always `true`.
-    */
-    bool deallocateAll() nothrow @nogc
-    {
-        offset = 0;
-        return true;
-    }
-
-    /**
-    Queries whether `b` was allocated from this region.
-
-    Params:
-        b = an arbitrary memory slice (`null` is allowed)
-
-    Returns: `true` if `b` lies entirely within this region.
-    */
-    bool owns(const void[] b) const nothrow @nogc
-    {
-        auto p = cast(const(ubyte)*) b.ptr;
-        return p >= base && (p + b.length) <= (base + cap);
-    }
-
-    /// Returns `true` if no allocations have been made.
-    bool empty() const nothrow @nogc => offset == 0;
-
-    /// Returns the number of bytes still available.
-    size_t available() const nothrow @nogc => cap - offset;
-
-    // -- High-level typed helpers, modelled after std.experimental.allocator --
-
-    /**
-    Allocates a typed array of `length` elements.
-
-    Modelled after
-    $(LINK2 https://dlang.org/phobos/std_experimental_allocator.html#.makeArray,
-    `std.experimental.allocator.makeArray`), but avoids `void[]` → `T[]`
-    array casts that pull in `core.lifetime` (unsupported on wasm32).
-
-    Params:
-        length = number of elements
-
-    Returns:
-        A `T[]` slice backed by this region, or `null` on failure.
-    */
-    T[] makeArray(T)(size_t length) nothrow @nogc
-    {
-        if (length == 0)
-            return null;
-        void[] m = allocate(length * T.sizeof);
-        if (m.ptr is null)
-            return null;
-        return (cast(T*) m.ptr)[0 .. length];
-    }
-
-    /**
-    Allocates a `ubyte[]` buffer of `n` bytes.
-
-    Convenience shorthand for `makeArray!ubyte(n)`.
-
-    Params:
-        n = number of bytes
-
-    Returns:
-        A `ubyte[]` slice backed by this region, or `null` on failure.
-    */
-    ubyte[] makeOpaqueArray(size_t n) nothrow @nogc => makeArray!ubyte(n);
-}
-
-/// Default allocator type — 8-byte aligned bump region.
-alias WasmAllocator = Region!8;
-
-/// Module-level arena in WASM linear memory (1 MB).
-private __gshared ubyte[1024 * 1024] wasmArena;
-
-/**
-Creates a fresh `WasmAllocator` backed by the global $(LREF wasmArena).
-
-Each exported builtin should call this at entry to obtain a
-reset allocator handle. Because the arena is shared, only one
-export may be active at a time (WASM is single-threaded).
-
-Returns: An initialised `WasmAllocator` ready for use.
-*/
-WasmAllocator newWasmAllocator() nothrow @nogc
-{
-    WasmAllocator a = void;
-    a.initialize(wasmArena[]);
-    return a;
+    const(char)[] readFile(ref WasmAllocator a) => copyFromHost!read_file(id, a);
 }
 
 // Provide D/C runtime functions that LDC emits calls to in -betterC WASM.

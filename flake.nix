@@ -46,6 +46,8 @@
               pkgs.lld
               pkgs.wabt
               pkgs.dformat
+              pkgs.zlib
+              pkgs.openssl
               inputs'.nix-src.packages.nix-cli
             ]
             ++ enabledPackages

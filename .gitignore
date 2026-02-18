@@ -14,5 +14,5 @@ result-*
 build/
 
 # Generated docs
-docs/*.html
+docs/
 docs.json

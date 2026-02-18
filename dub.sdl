@@ -4,6 +4,8 @@ license "MIT"
 
 targetType "none"
 
+x:ddoxTool "scod"
+
 configuration "default" {
 }
 

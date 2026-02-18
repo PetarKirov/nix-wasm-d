@@ -7,8 +7,8 @@ BUILD_DIR="${BUILD_DIR:-build}"
 
 (
   set -x
-  dub build :json
-  dub build :strings
+  dub build :json --arch=wasm32-unknown-unknown-wasm
+  dub build :strings --arch=wasm32-unknown-unknown-wasm
 )
 
 NIX_CMD=(nix eval --impure --extra-experimental-features wasm-builtin)

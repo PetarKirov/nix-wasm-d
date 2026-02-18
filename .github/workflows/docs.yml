@@ -32,18 +32,12 @@ jobs:
           substituters: ${{ vars.SUBSTITUTERS }}
 
       - name: Generate docs
-        run: nix develop -c dub build -c docs -b docs
-
-      - name: Prepare site
-        run: |
-          mkdir -p _site
-          cp docs/*.html _site/
-          cp _site/package.html _site/index.html
+        run: nix develop -c dub build -c docs -b ddox
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: docs
 
   deploy:
     name: Deploy to GitHub Pages

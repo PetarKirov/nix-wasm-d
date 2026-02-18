@@ -51,27 +51,27 @@ private Value concatWithSeparator(ref WasmAllocator allocator, const(char)[] sep
         totalLen += sep.length;
     }
 
-    ubyte[] result = makeArrayOrPanic!ubyte(allocator, totalLen);
+    char[] result = makeArrayOrPanic!char(allocator, totalLen);
 
     size_t pos = 0;
     foreach (i; 0 .. strings.length)
     {
         if (i > 0)
         {
-            result[pos .. pos + sep.length] = cast(const(ubyte)[]) sep;
+            result[pos .. pos + sep.length] = sep;
             pos += sep.length;
         }
         const(char)[] s = strSlices[i];
-        result[pos .. pos + s.length] = cast(const(ubyte)[]) s;
+        result[pos .. pos + s.length] = s;
         pos += s.length;
     }
 
     if (trailing)
     {
-        result[pos .. pos + sep.length] = cast(const(ubyte)[]) sep;
+        result[pos .. pos + sep.length] = sep;
     }
 
-    return Value.makeString(cast(const(char)[]) result);
+    return Value.makeString(result);
 }
 
 /// Performs substring replacement on the input string.
@@ -109,7 +109,7 @@ private Value replaceStringsImpl(ref WasmAllocator allocator, const(char)[] inpu
     size_t resultCap = input.length * 2;
     if (resultCap < 256)
         resultCap = 256;
-    ubyte[] resultBuf = makeArrayOrPanic!ubyte(allocator, resultCap);
+    char[] resultBuf = makeArrayOrPanic!char(allocator, resultCap);
     size_t resultLen = 0;
 
     void appendSlice(const(char)[] s)
@@ -120,12 +120,12 @@ private Value replaceStringsImpl(ref WasmAllocator allocator, const(char)[] inpu
             size_t newCap = resultCap * 2;
             while (newCap < resultLen + s.length)
                 newCap *= 2;
-            ubyte[] newBuf = makeArrayOrPanic!ubyte(allocator, newCap);
+            char[] newBuf = makeArrayOrPanic!char(allocator, newCap);
             newBuf[0 .. resultLen] = resultBuf[0 .. resultLen];
             resultBuf = newBuf;
             resultCap = newCap;
         }
-        resultBuf[resultLen .. resultLen + s.length] = cast(const(ubyte)[]) s;
+        resultBuf[resultLen .. resultLen + s.length] = s;
         resultLen += s.length;
     }
 
@@ -189,7 +189,7 @@ private Value replaceStringsImpl(ref WasmAllocator allocator, const(char)[] inpu
         appendSlice(input[unmatchedStart .. pos]);
     }
 
-    return Value.makeString(cast(const(char)[]) resultBuf[0 .. resultLen]);
+    return Value.makeString(resultBuf[0 .. resultLen]);
 }
 
 /**
@@ -372,12 +372,12 @@ export extern (C) Value replicate(Value args)
     const(char)[] s = sVal.getString(allocator);
 
     size_t count = cast(size_t) n;
-    ubyte[] result = makeArrayOrPanic!ubyte(allocator, s.length * count);
+    char[] result = makeArrayOrPanic!char(allocator, s.length * count);
 
     foreach (i; 0 .. count)
     {
-        result[i * s.length .. (i + 1) * s.length] = cast(const(ubyte)[]) s;
+        result[i * s.length .. (i + 1) * s.length] = s;
     }
 
-    return Value.makeString(cast(const(char)[]) result);
+    return Value.makeString(result);
 }

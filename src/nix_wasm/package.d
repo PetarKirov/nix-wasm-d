@@ -60,10 +60,10 @@ private extern (C) @llvmAttr("wasm-import-module", "env")
     long get_int(ValueId value);
     Value make_float(double value);
     double get_float(ValueId value);
-    Value make_string(const(ubyte)* ptr, size_t len);
-    size_t copy_string(ValueId value, ubyte* ptr, size_t max_len);
-    Value make_path(ValueId base, const(ubyte)* ptr, size_t len);
-    size_t copy_path(ValueId value, ubyte* ptr, size_t max_len);
+    Value make_string(const(char)* ptr, size_t len);
+    size_t copy_string(ValueId value, char* ptr, size_t max_len);
+    Value make_path(ValueId base, const(char)* ptr, size_t len);
+    size_t copy_path(ValueId value, char* ptr, size_t max_len);
     Value make_bool(int b);
     int get_bool(ValueId value);
     Value make_null();
@@ -71,13 +71,13 @@ private extern (C) @llvmAttr("wasm-import-module", "env")
     size_t copy_list(ValueId value, Value* ptr, size_t max_len);
     Value make_attrset(const(AttrInput)* ptr, size_t len);
     size_t copy_attrset(ValueId value, AttrOutput* ptr, size_t max_len);
-    void copy_attrname(ValueId value, size_t attr_idx, ubyte* ptr, size_t len);
-    ValueId get_attr(ValueId value, const(ubyte)* ptr, size_t len);
+    void copy_attrname(ValueId value, size_t attr_idx, char* ptr, size_t len);
+    ValueId get_attr(ValueId value, const(char)* ptr, size_t len);
     Value call_function(ValueId fun, const(Value)* ptr, size_t len);
     Value make_app(ValueId fun, const(Value)* ptr, size_t len);
-    size_t read_file(ValueId value, ubyte* ptr, size_t max_len);
-    void panic(const(ubyte)* ptr, size_t len);
-    void warn(const(ubyte)* ptr, size_t len);
+    size_t read_file(ValueId value, char* ptr, size_t max_len);
+    void panic(const(char)* ptr, size_t len);
+    void warn(const(char)* ptr, size_t len);
 }
 
 /// A name-value pair used to construct Nix attribute sets.
@@ -132,21 +132,21 @@ T[] makeArrayOrPanic(T)(ref WasmAllocator a, size_t count)
 private const(char)[] copyToArena(alias copyFn, size_t stackSize = 256)(ValueId id,
         ref WasmAllocator a)
 {
-    ubyte[stackSize] stackBuf = void;
+    char[stackSize] stackBuf = void;
     size_t len = copyFn(id, stackBuf.ptr, stackBuf.length);
 
     if (len > stackBuf.length)
     {
-        ubyte[] buf = makeArrayOrPanic!ubyte(a, len);
+        char[] buf = makeArrayOrPanic!char(a, len);
         size_t len2 = copyFn(id, buf.ptr, len);
         if (len2 != len)
             nixPanic("length mismatch");
-        return cast(const(char)[]) buf[0 .. len];
+        return buf[0 .. len];
     }
 
-    ubyte[] result = makeArrayOrPanic!ubyte(a, len);
+    char[] result = makeArrayOrPanic!char(a, len);
     result[0 .. len] = stackBuf[0 .. len];
-    return cast(const(char)[]) result[0 .. len];
+    return result[0 .. len];
 }
 
 /// Copies a variable-length array of `Value` from the host into the arena.
@@ -197,13 +197,13 @@ struct Value
     double getFloat() => get_float(id);
 
     /// Constructs a Nix string value from a D character slice.
-    static Value makeString(const(char)[] s) => make_string(cast(const(ubyte)*) s.ptr, s.length);
+    static Value makeString(const(char)[] s) => make_string(s.ptr, s.length);
 
     /// Returns the string content of this value as an arena-backed slice.
     const(char)[] getString(ref WasmAllocator a) => copyToArena!copy_string(id, a);
 
     /// Constructs a Nix path value relative to this base path.
-    Value makePath(const(char)[] rel) => make_path(id, cast(const(ubyte)*) rel.ptr, rel.length);
+    Value makePath(const(char)[] rel) => make_path(id, rel.ptr, rel.length);
 
     /// Returns the path string of this value as an arena-backed slice.
     const(char)[] getPath(ref WasmAllocator a) => copyToArena!copy_path(id, a);
@@ -262,9 +262,9 @@ struct Value
 
         foreach (i, ref entry; attrsBuf)
         {
-            ubyte[] nameBuf = makeArrayOrPanic!ubyte(allocator, entry.name_len);
+            char[] nameBuf = makeArrayOrPanic!char(allocator, entry.name_len);
             copy_attrname(id, i, nameBuf.ptr, entry.name_len);
-            nameSlices[i] = cast(const(char)[]) nameBuf;
+            nameSlices[i] = nameBuf;
             valSlices[i] = Value(entry.value_id);
         }
 
@@ -276,7 +276,7 @@ struct Value
     /// Looks up an attribute by name, returning a zero-id value if not found.
     Value getAttr(const(char)[] attrName)
     {
-        ValueId vid = get_attr(id, cast(const(ubyte)*) attrName.ptr, attrName.length);
+        ValueId vid = get_attr(id, attrName.ptr, attrName.length);
         if (vid == 0)
             return Value(0);
         return Value(vid);
@@ -284,7 +284,7 @@ struct Value
 
     /// Returns whether this attribute set contains the given key.
     bool hasAttr(const(char)[] attrName) => get_attr(id,
-            cast(const(ubyte)*) attrName.ptr, attrName.length) != 0;
+            attrName.ptr, attrName.length) != 0;
 
     /// Eagerly calls this value as a function with the given arguments.
     Value call(const(Value)[] args) => call_function(id, args.ptr, args.length);
@@ -480,7 +480,7 @@ extern (C) void _d_array_slice_copy(void* dst, size_t dstLen, const(void)* src,
 // D betterC assert handler
 extern (C) void __assert(const(char)* msg, const(char)* file, int line)
 {
-    panic(cast(const(ubyte)*) "assertion failure".ptr, "assertion failure".length);
+    panic("assertion failure".ptr, "assertion failure".length);
     while (true)
     {
     }
@@ -535,7 +535,7 @@ extern (C) void* memmove(void* dest, const(void)* src, size_t n)
 /// Aborts execution with a message sent to the Nix host.
 void nixPanic(string msg)
 {
-    panic(cast(const(ubyte)*) msg.ptr, msg.length);
+    panic(msg.ptr, msg.length);
     while (true)
     {
     } // panic is noreturn but D doesn't know that
@@ -544,5 +544,5 @@ void nixPanic(string msg)
 /// Sends a warning message to the Nix host.
 void nixWarn(string msg)
 {
-    warn(cast(const(ubyte)*) msg.ptr, msg.length);
+    warn(msg.ptr, msg.length);
 }

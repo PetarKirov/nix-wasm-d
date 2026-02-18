@@ -124,7 +124,7 @@ private Value parseJsonString(ref WasmAllocator allocator, const(char)[] json, r
 
     // Handle escapes - build into arena
     size_t maxLen = scanPos - start;
-    ubyte[] buf = makeArrayOrPanic!ubyte(allocator, maxLen);
+    char[] buf = makeArrayOrPanic!char(allocator, maxLen);
     size_t outPos = 0;
 
     while (pos < json.length && json[pos] != '"')
@@ -168,12 +168,12 @@ private Value parseJsonString(ref WasmAllocator allocator, const(char)[] json, r
         }
         else
         {
-            buf[outPos++] = cast(ubyte) json[pos];
+            buf[outPos++] = json[pos];
             pos++;
         }
     }
     pos++; // skip closing quote
-    return Value.makeString(cast(const(char)[]) buf[0 .. outPos]);
+    return Value.makeString(buf[0 .. outPos]);
 }
 
 /// Parses a JSON number, returning either an int or float Nix value.
@@ -475,10 +475,10 @@ private void nixToJson(ref WasmAllocator allocator, ref JsonWriter writer, Value
     }
 }
 
-/// Growable byte buffer for building JSON output in the WASM arena.
+/// Growable char buffer for building JSON output in the WASM arena.
 private struct JsonWriter
 {
-    ubyte* buf;
+    char* buf;
     size_t len;
     size_t capacity;
     WasmAllocator* allocator;
@@ -487,7 +487,7 @@ private struct JsonWriter
     {
         allocator = &alloc;
         capacity = 4096;
-        auto initial = makeArrayOrPanic!ubyte(*allocator, capacity);
+        auto initial = makeArrayOrPanic!char(*allocator, capacity);
         buf = initial.ptr;
         len = 0;
     }
@@ -496,31 +496,31 @@ private struct JsonWriter
     {
         foreach (c; s)
         {
-            writeByte(cast(ubyte) c);
+            writeChar(c);
         }
     }
 
-    void writeByte(ubyte b)
+    void writeChar(char c)
     {
         if (len >= capacity)
         {
             // Grow - allocate new buffer in arena
             size_t newCap = capacity * 2;
-            auto grown = makeArrayOrPanic!ubyte(*allocator, newCap);
+            auto grown = makeArrayOrPanic!char(*allocator, newCap);
             grown[0 .. len] = buf[0 .. len];
             buf = grown.ptr;
             capacity = newCap;
         }
-        buf[len++] = b;
+        buf[len++] = c;
     }
 
-    const(char)[] result() => cast(const(char)[]) buf[0 .. len];
+    const(char)[] result() => buf[0 .. len];
 }
 
 /// Writes a JSON-escaped string with surrounding quotes.
 private void writeJsonString(ref JsonWriter w, const(char)[] s)
 {
-    w.writeByte('"');
+    w.writeChar('"');
     foreach (c; s)
     {
         switch (c)
@@ -550,28 +550,28 @@ private void writeJsonString(ref JsonWriter w, const(char)[] s)
             if (cast(ubyte) c < 0x20)
             {
                 w.writeRaw("\\u00");
-                w.writeByte(hexDigit((cast(ubyte) c >> 4) & 0xF));
-                w.writeByte(hexDigit(cast(ubyte) c & 0xF));
+                w.writeChar(hexDigit((cast(ubyte) c >> 4) & 0xF));
+                w.writeChar(hexDigit(cast(ubyte) c & 0xF));
             }
             else
             {
-                w.writeByte(cast(ubyte) c);
+                w.writeChar(c);
             }
             break;
         }
     }
-    w.writeByte('"');
+    w.writeChar('"');
 }
 
 /// Converts a nibble (0-15) to its lowercase hex ASCII character.
-private ubyte hexDigit(ubyte n) => cast(ubyte)(n < 10 ? '0' + n : 'a' + n - 10);
+private char hexDigit(ubyte n) => cast(char)(n < 10 ? '0' + n : 'a' + n - 10);
 
 /// Writes a decimal representation of a long integer.
 private void writeLong(ref JsonWriter w, long n)
 {
     if (n < 0)
     {
-        w.writeByte('-');
+        w.writeChar('-');
         // Handle min value
         if (n == long.min)
         {
@@ -582,7 +582,7 @@ private void writeLong(ref JsonWriter w, long n)
     }
     if (n == 0)
     {
-        w.writeByte('0');
+        w.writeChar('0');
         return;
     }
     char[20] digits = void;
@@ -595,7 +595,7 @@ private void writeLong(ref JsonWriter w, long n)
     // Reverse
     foreach_reverse (i; 0 .. count)
     {
-        w.writeByte(cast(ubyte) digits[i]);
+        w.writeChar(digits[i]);
     }
 }
 
@@ -621,7 +621,7 @@ private void writeDouble(ref JsonWriter w, double val)
 
     if (val < 0)
     {
-        w.writeByte('-');
+        w.writeChar('-');
         val = -val;
     }
 
@@ -632,13 +632,13 @@ private void writeDouble(ref JsonWriter w, double val)
     writeLong(w, intPart);
 
     // Always write fractional part for floats
-    w.writeByte('.');
+    w.writeChar('.');
     // Write 6 decimal places
     foreach (_; 0 .. 6)
     {
         fracPart *= 10.0;
         int digit = cast(int) fracPart;
-        w.writeByte(cast(ubyte)('0' + digit));
+        w.writeChar(cast(char)('0' + digit));
         fracPart -= cast(double) digit;
     }
 }

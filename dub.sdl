@@ -4,6 +4,17 @@ license "MIT"
 
 targetType "none"
 
+configuration "default" {
+}
+
+configuration "docs" {
+    targetType "library"
+    targetPath "build"
+    sourcePaths "src"
+    importPaths "src"
+
+}
+
 subPackage {
     name "json"
     targetType "executable"

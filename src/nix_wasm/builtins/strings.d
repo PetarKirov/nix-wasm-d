@@ -1,4 +1,9 @@
-/// String builtins for Nix WASM
+/**
+String manipulation builtins for Nix WASM.
+
+Implements string concatenation, joining, replacement, and
+replication as WASM-exported functions for the Nix evaluator.
+*/
 module nix_wasm.builtins.strings;
 
 import nix_wasm;
@@ -10,26 +15,25 @@ export extern (C) void nix_wasm_init_v1()
     nixWarn("strings wasm module");
 }
 
+/// Validates that every element in the list is a Nix string.
 private void validateStringList(Value[] items)
 {
     foreach (ref item; items)
     {
-        if (item.getType() != Type.String)
+        if (item.getType() != Type.string)
         {
             nixPanic("Expected a list of strings");
         }
     }
 }
 
+/// Concatenates string values with an optional separator and trailing flag.
 private Value concatWithSeparator(ref WasmAllocator allocator, const(char)[] sep,
         Value[] strings, bool trailing)
 {
     // Get all string values
     size_t totalLen = 0;
-    const(char)[]* strSlices = cast(const(char)[]*) allocator.alloc(
-            strings.length * (const(char)[]).sizeof);
-    if (strSlices is null)
-        nixPanic("out of memory");
+    const(char)[][] strSlices = makeArrayOrPanic!(const(char)[])(allocator, strings.length);
 
     foreach (i, ref s; strings)
     {
@@ -47,9 +51,7 @@ private Value concatWithSeparator(ref WasmAllocator allocator, const(char)[] sep
         totalLen += sep.length;
     }
 
-    ubyte* result = allocator.alloc(totalLen);
-    if (result is null)
-        nixPanic("out of memory");
+    ubyte[] result = makeArrayOrPanic!ubyte(allocator, totalLen);
 
     size_t pos = 0;
     foreach (i; 0 .. strings.length)
@@ -69,9 +71,10 @@ private Value concatWithSeparator(ref WasmAllocator allocator, const(char)[] sep
         result[pos .. pos + sep.length] = cast(const(ubyte)[]) sep;
     }
 
-    return Value.makeString(cast(const(char)[]) result[0 .. totalLen]);
+    return Value.makeString(cast(const(char)[]) result);
 }
 
+/// Performs substring replacement on the input string.
 private Value replaceStringsImpl(ref WasmAllocator allocator, const(char)[] input,
         Value[] from, Value[] to)
 {
@@ -89,19 +92,14 @@ private Value replaceStringsImpl(ref WasmAllocator allocator, const(char)[] inpu
     validateStringList(to);
 
     // Get from strings
-    const(char)[]* fromStrs = cast(const(char)[]*) allocator.alloc(
-            from.length * (const(char)[]).sizeof);
-    if (fromStrs is null)
-        nixPanic("out of memory");
+    const(char)[][] fromStrs = makeArrayOrPanic!(const(char)[])(allocator, from.length);
     foreach (i, ref v; from)
     {
         fromStrs[i] = v.getString(allocator);
     }
 
     // Get to strings
-    const(char)[]* toStrs = cast(const(char)[]*) allocator.alloc(to.length * (const(char)[]).sizeof);
-    if (toStrs is null)
-        nixPanic("out of memory");
+    const(char)[][] toStrs = makeArrayOrPanic!(const(char)[])(allocator, to.length);
     foreach (i, ref v; to)
     {
         toStrs[i] = v.getString(allocator);
@@ -111,9 +109,7 @@ private Value replaceStringsImpl(ref WasmAllocator allocator, const(char)[] inpu
     size_t resultCap = input.length * 2;
     if (resultCap < 256)
         resultCap = 256;
-    ubyte* resultBuf = allocator.alloc(resultCap);
-    if (resultBuf is null)
-        nixPanic("out of memory");
+    ubyte[] resultBuf = makeArrayOrPanic!ubyte(allocator, resultCap);
     size_t resultLen = 0;
 
     void appendSlice(const(char)[] s)
@@ -124,9 +120,7 @@ private Value replaceStringsImpl(ref WasmAllocator allocator, const(char)[] inpu
             size_t newCap = resultCap * 2;
             while (newCap < resultLen + s.length)
                 newCap *= 2;
-            ubyte* newBuf = allocator.alloc(newCap);
-            if (newBuf is null)
-                nixPanic("out of memory");
+            ubyte[] newBuf = makeArrayOrPanic!ubyte(allocator, newCap);
             newBuf[0 .. resultLen] = resultBuf[0 .. resultLen];
             resultBuf = newBuf;
             resultCap = newCap;
@@ -198,12 +192,17 @@ private Value replaceStringsImpl(ref WasmAllocator allocator, const(char)[] inpu
     return Value.makeString(cast(const(char)[]) resultBuf[0 .. resultLen]);
 }
 
-/// concatStringsSep { sep = "/"; list = ["usr" "local" "bin"]; }
-/// => "usr/local/bin"
+/**
+Concatenates a list of strings with a separator.
+
+Params:
+    args = an attrset with `sep` (string) and `list` (list of strings)
+
+Returns: A single Nix string with elements joined by the separator.
+*/
 export extern (C) Value concatStringsSep(Value args)
 {
-    WasmAllocator allocator;
-    allocator.init();
+    WasmAllocator allocator = newWasmAllocator();
 
     Value sepVal = args.getAttr("sep");
     if (sepVal.id == 0)
@@ -219,43 +218,67 @@ export extern (C) Value concatStringsSep(Value args)
     return concatWithSeparator(allocator, sep, list, false);
 }
 
-/// concatStrings ["foo" "bar"]
-/// => "foobar"
+/**
+Concatenates a list of strings without any separator.
+
+Params:
+    arg = a Nix list of strings
+
+Returns: A single Nix string with all elements concatenated.
+*/
 export extern (C) Value concatStrings(Value arg)
 {
-    WasmAllocator allocator;
-    allocator.init();
+    WasmAllocator allocator = newWasmAllocator();
 
     Value[] list = arg.getList(allocator);
     validateStringList(list);
     return concatWithSeparator(allocator, "", list, false);
 }
 
-/// join { sep = ", "; list = ["foo" "bar"]; }
-/// => "foo, bar"
+/**
+Joins a list of strings with a separator.
+
+Alias for $(LREF concatStringsSep).
+
+Params:
+    args = an attrset with `sep` (string) and `list` (list of strings)
+
+Returns: A single Nix string with elements joined by the separator.
+*/
 export extern (C) Value join(Value args)
 {
     return concatStringsSep(args);
 }
 
-/// concatLines [ "foo" "bar" ]
-/// => "foo\nbar\n"
+/**
+Concatenates strings with newline separators, including a trailing newline.
+
+Params:
+    arg = a Nix list of strings
+
+Returns: A Nix string with elements separated and terminated by newlines.
+*/
 export extern (C) Value concatLines(Value arg)
 {
-    WasmAllocator allocator;
-    allocator.init();
+    WasmAllocator allocator = newWasmAllocator();
 
     Value[] list = arg.getList(allocator);
     validateStringList(list);
     return concatWithSeparator(allocator, "\n", list, true);
 }
 
-/// replaceStrings { from = ["Hello" "world"]; to = ["Goodbye" "Nix"]; s = "Hello, world!"; }
-/// => "Goodbye, Nix!"
+/**
+Replaces occurrences of substrings in a string.
+
+Params:
+    args = an attrset with `from` (list of patterns),
+        `to` (list of replacements), and `s` (the input string)
+
+Returns: The input string with all replacements applied left-to-right.
+*/
 export extern (C) Value replaceStrings(Value args)
 {
-    WasmAllocator allocator;
-    allocator.init();
+    WasmAllocator allocator = newWasmAllocator();
 
     Value fromVal = args.getAttr("from");
     if (fromVal.id == 0)
@@ -275,12 +298,17 @@ export extern (C) Value replaceStrings(Value args)
     return replaceStringsImpl(allocator, input, from, to);
 }
 
-/// intersperse { sep = "/"; list = ["usr" "local" "bin"]; }
-/// => ["usr" "/" "local" "/" "bin"]
+/**
+Intersperses a separator value between list elements.
+
+Params:
+    args = an attrset with `sep` (separator string) and `list` (list of strings)
+
+Returns: A Nix list with the separator inserted between each pair of elements.
+*/
 export extern (C) Value intersperse(Value args)
 {
-    WasmAllocator allocator;
-    allocator.init();
+    WasmAllocator allocator = newWasmAllocator();
 
     Value sepVal = args.getAttr("sep");
     if (sepVal.id == 0)
@@ -300,9 +328,7 @@ export extern (C) Value intersperse(Value args)
     }
 
     size_t resultLen = strings.length * 2 - 1;
-    Value* result = cast(Value*) allocator.alloc(resultLen * Value.sizeof);
-    if (result is null)
-        nixPanic("out of memory");
+    Value[] result = makeArrayOrPanic!Value(allocator, resultLen);
 
     Value sepValue = Value.makeString(sep);
 
@@ -315,15 +341,20 @@ export extern (C) Value intersperse(Value args)
         result[i * 2] = strings[i];
     }
 
-    return Value.makeList(result[0 .. resultLen]);
+    return Value.makeList(result);
 }
 
-/// replicate { n = 3; s = "v"; }
-/// => "vvv"
+/**
+Repeats a string a given number of times.
+
+Params:
+    args = an attrset with `n` (non-negative integer) and `s` (the string to repeat)
+
+Returns: A Nix string containing `s` repeated `n` times.
+*/
 export extern (C) Value replicate(Value args)
 {
-    WasmAllocator allocator;
-    allocator.init();
+    WasmAllocator allocator = newWasmAllocator();
 
     Value nVal = args.getAttr("n");
     if (nVal.id == 0)
@@ -341,14 +372,12 @@ export extern (C) Value replicate(Value args)
     const(char)[] s = sVal.getString(allocator);
 
     size_t count = cast(size_t) n;
-    ubyte* result = allocator.alloc(s.length * count);
-    if (result is null && s.length * count > 0)
-        nixPanic("out of memory");
+    ubyte[] result = makeArrayOrPanic!ubyte(allocator, s.length * count);
 
     foreach (i; 0 .. count)
     {
         result[i * s.length .. (i + 1) * s.length] = cast(const(ubyte)[]) s;
     }
 
-    return Value.makeString(cast(const(char)[]) result[0 .. s.length * count]);
+    return Value.makeString(cast(const(char)[]) result);
 }

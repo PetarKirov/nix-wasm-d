@@ -1,4 +1,9 @@
-/// JSON builtins for Nix WASM
+/**
+JSON serialization and deserialization builtins for Nix WASM.
+
+Implements `fromJSON` and `toJSON` as WASM-exported functions
+for the Nix evaluator.
+*/
 module nix_wasm.builtins.json;
 
 import nix_wasm;
@@ -10,6 +15,7 @@ export extern (C) void nix_wasm_init_v1()
     nixWarn("json wasm module");
 }
 
+/// Recursively converts a JSON value at the current position to a Nix value.
 private void jsonToNix(ref WasmAllocator allocator, const(char)[] json,
         ref size_t pos, out Value result)
 {
@@ -77,6 +83,7 @@ private void jsonToNix(ref WasmAllocator allocator, const(char)[] json,
     }
 }
 
+/// Advances past JSON whitespace characters.
 private void skipWhitespace(const(char)[] json, ref size_t pos)
 {
     while (pos < json.length && (json[pos] == ' ' || json[pos] == '\t'
@@ -86,6 +93,7 @@ private void skipWhitespace(const(char)[] json, ref size_t pos)
     }
 }
 
+/// Parses a JSON string literal, handling escape sequences.
 private Value parseJsonString(ref WasmAllocator allocator, const(char)[] json, ref size_t pos)
 {
     pos++; // skip opening quote
@@ -116,9 +124,7 @@ private Value parseJsonString(ref WasmAllocator allocator, const(char)[] json, r
 
     // Handle escapes - build into arena
     size_t maxLen = scanPos - start;
-    ubyte* buf = allocator.alloc(maxLen);
-    if (buf is null)
-        nixPanic("out of memory");
+    ubyte[] buf = makeArrayOrPanic!ubyte(allocator, maxLen);
     size_t outPos = 0;
 
     while (pos < json.length && json[pos] != '"')
@@ -170,6 +176,7 @@ private Value parseJsonString(ref WasmAllocator allocator, const(char)[] json, r
     return Value.makeString(cast(const(char)[]) buf[0 .. outPos]);
 }
 
+/// Parses a JSON number, returning either an int or float Nix value.
 private Value parseJsonNumber(ref WasmAllocator allocator, const(char)[] json, ref size_t pos)
 {
     size_t start = pos;
@@ -211,6 +218,7 @@ private Value parseJsonNumber(ref WasmAllocator allocator, const(char)[] json, r
     }
 }
 
+/// Parses a decimal integer from a character slice.
 private long parseLong(const(char)[] s)
 {
     if (s.length == 0)
@@ -233,6 +241,7 @@ private long parseLong(const(char)[] s)
     return negative ? -result : result;
 }
 
+/// Parses a decimal floating-point number from a character slice.
 private double parseDouble(const(char)[] s)
 {
     // Simple double parser
@@ -299,6 +308,7 @@ private double parseDouble(const(char)[] s)
     return negative ? -result : result;
 }
 
+/// Parses a JSON array into a Nix list.
 private Value parseJsonArray(ref WasmAllocator allocator, const(char)[] json, ref size_t pos)
 {
     pos++; // skip '['
@@ -306,9 +316,7 @@ private Value parseJsonArray(ref WasmAllocator allocator, const(char)[] json, re
 
     // Collect items into arena
     enum MAX_ITEMS = 4096;
-    Value* items = cast(Value*) allocator.alloc(MAX_ITEMS * Value.sizeof);
-    if (items is null)
-        nixPanic("out of memory");
+    Value[] items = makeArrayOrPanic!Value(allocator, MAX_ITEMS);
     size_t count = 0;
 
     if (pos < json.length && json[pos] == ']')
@@ -344,15 +352,14 @@ private Value parseJsonArray(ref WasmAllocator allocator, const(char)[] json, re
     return Value.makeList(items[0 .. count]);
 }
 
+/// Parses a JSON object into a Nix attribute set.
 private Value parseJsonObject(ref WasmAllocator allocator, const(char)[] json, ref size_t pos)
 {
     pos++; // skip '{'
     skipWhitespace(json, pos);
 
     enum MAX_ATTRS = 4096;
-    AttrEntry* entries = cast(AttrEntry*) allocator.alloc(MAX_ATTRS * AttrEntry.sizeof);
-    if (entries is null)
-        nixPanic("out of memory");
+    AttrEntry[] entries = makeArrayOrPanic!AttrEntry(allocator, MAX_ATTRS);
     size_t count = 0;
 
     if (pos < json.length && json[pos] == '}')
@@ -411,31 +418,32 @@ private Value parseJsonObject(ref WasmAllocator allocator, const(char)[] json, r
     return Value.makeAttrset(allocator, entries[0 .. count]);
 }
 
+/// Recursively serializes a Nix value to JSON.
 private void nixToJson(ref WasmAllocator allocator, ref JsonWriter writer, Value value)
 {
     final switch (value.getType())
     {
-    case Type.Null:
+    case Type.null_:
         writer.writeRaw("null");
         break;
-    case Type.Bool:
+    case Type.boolean:
         writer.writeRaw(value.getBool() ? "true" : "false");
         break;
-    case Type.Int:
+    case Type.integer:
         writeLong(writer, value.getInt());
         break;
-    case Type.Float:
+    case Type.float_:
         writeDouble(writer, value.getFloat());
         break;
-    case Type.String:
+    case Type.string:
         const(char)[] s = value.getString(allocator);
         writeJsonString(writer, s);
         break;
-    case Type.Path:
+    case Type.path:
         const(char)[] p = value.getPath(allocator);
         writeJsonString(writer, p);
         break;
-    case Type.List:
+    case Type.list:
         Value[] items = value.getList(allocator);
         writer.writeRaw("[");
         foreach (i, item; items)
@@ -446,7 +454,7 @@ private void nixToJson(ref WasmAllocator allocator, ref JsonWriter writer, Value
         }
         writer.writeRaw("]");
         break;
-    case Type.Attrs:
+    case Type.attrs:
         const(char)[][] names;
         Value[] values;
         size_t count;
@@ -462,11 +470,12 @@ private void nixToJson(ref WasmAllocator allocator, ref JsonWriter writer, Value
         }
         writer.writeRaw("}");
         break;
-    case Type.Function:
+    case Type.function_:
         nixPanic("cannot convert a function to JSON");
     }
 }
 
+/// Growable byte buffer for building JSON output in the WASM arena.
 private struct JsonWriter
 {
     ubyte* buf;
@@ -478,9 +487,8 @@ private struct JsonWriter
     {
         allocator = &alloc;
         capacity = 4096;
-        buf = alloc.alloc(capacity);
-        if (buf is null)
-            nixPanic("out of memory");
+        auto initial = makeArrayOrPanic!ubyte(*allocator, capacity);
+        buf = initial.ptr;
         len = 0;
     }
 
@@ -498,22 +506,18 @@ private struct JsonWriter
         {
             // Grow - allocate new buffer in arena
             size_t newCap = capacity * 2;
-            ubyte* newBuf = allocator.alloc(newCap);
-            if (newBuf is null)
-                nixPanic("out of memory");
-            newBuf[0 .. len] = buf[0 .. len];
-            buf = newBuf;
+            auto grown = makeArrayOrPanic!ubyte(*allocator, newCap);
+            grown[0 .. len] = buf[0 .. len];
+            buf = grown.ptr;
             capacity = newCap;
         }
         buf[len++] = b;
     }
 
-    const(char)[] result()
-    {
-        return cast(const(char)[]) buf[0 .. len];
-    }
+    const(char)[] result() => cast(const(char)[]) buf[0 .. len];
 }
 
+/// Writes a JSON-escaped string with surrounding quotes.
 private void writeJsonString(ref JsonWriter w, const(char)[] s)
 {
     w.writeByte('"');
@@ -559,11 +563,10 @@ private void writeJsonString(ref JsonWriter w, const(char)[] s)
     w.writeByte('"');
 }
 
-private ubyte hexDigit(ubyte n)
-{
-    return cast(ubyte)(n < 10 ? '0' + n : 'a' + n - 10);
-}
+/// Converts a nibble (0-15) to its lowercase hex ASCII character.
+private ubyte hexDigit(ubyte n) => cast(ubyte)(n < 10 ? '0' + n : 'a' + n - 10);
 
+/// Writes a decimal representation of a long integer.
 private void writeLong(ref JsonWriter w, long n)
 {
     if (n < 0)
@@ -596,6 +599,7 @@ private void writeLong(ref JsonWriter w, long n)
     }
 }
 
+/// Writes a decimal representation of a double.
 private void writeDouble(ref JsonWriter w, double val)
 {
     // Handle special cases
@@ -639,26 +643,36 @@ private void writeDouble(ref JsonWriter w, double val)
     }
 }
 
-/// fromJSON ''{"x": [1, 2, 3], "y": null}''
-/// => { x = [ 1 2 3 ]; y = null; }
+/**
+Parses a JSON string into a Nix value.
+
+Params:
+    arg = a Nix string containing valid JSON
+
+Returns: The corresponding Nix value.
+*/
 export extern (C) Value fromJSON(Value arg)
 {
-    WasmAllocator allocator;
-    allocator.init();
+    WasmAllocator allocator = newWasmAllocator();
 
-    const(char)[] json_str = arg.getString(allocator);
+    const(char)[] jsonStr = arg.getString(allocator);
     size_t pos = 0;
     Value result;
-    jsonToNix(allocator, json_str, pos, result);
+    jsonToNix(allocator, jsonStr, pos, result);
     return result;
 }
 
-/// toJSON { x = [ 1 2 3 ]; y = null; }
-/// => {"x": [1, 2, 3], "y": null}
+/**
+Serializes a Nix value to a JSON string.
+
+Params:
+    arg = any Nix value except functions
+
+Returns: A Nix string containing the JSON representation.
+*/
 export extern (C) Value toJSON(Value arg)
 {
-    WasmAllocator allocator;
-    allocator.init();
+    WasmAllocator allocator = newWasmAllocator();
 
     JsonWriter writer;
     writer.init(allocator);

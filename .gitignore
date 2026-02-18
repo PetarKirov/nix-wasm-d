@@ -12,3 +12,7 @@ result-*
 
 # build artifact dir
 build/
+
+# Generated docs
+docs/*.html
+docs.json

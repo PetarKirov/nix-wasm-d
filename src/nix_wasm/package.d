@@ -11,6 +11,7 @@ See_Also:
 module nix_wasm;
 
 import ldc.attributes;
+import ldc.intrinsics;
 
 public import nix_wasm.memory;
 
@@ -283,16 +284,15 @@ struct Value
 }
 
 // Provide D/C runtime functions that LDC emits calls to in -betterC WASM.
+//
+// With -mattr=+bulk-memory, LLVM lowers the intrinsic calls below to
+// native WASM `memory.copy` and `memory.fill` instructions.
 
 // D runtime array slice copy (5-arg version: dst, dstLen, src, srcLen, elemSize)
 extern (C) void _d_array_slice_copy(void* dst, size_t dstLen, const(void)* src,
         size_t srcLen, size_t elemSize)
 {
-    auto d = cast(ubyte*) dst;
-    auto s = cast(const(ubyte)*) src;
-    auto totalBytes = dstLen * elemSize;
-    foreach (i; 0 .. totalBytes)
-        d[i] = s[i];
+    llvm_memcpy!size_t(dst, src, dstLen * elemSize, false);
 }
 
 // D betterC assert handler
@@ -316,35 +316,19 @@ extern (C) int memcmp(const(void)* s1, const(void)* s2, size_t n)
 
 extern (C) void* memcpy(void* dest, const(void)* src, size_t n)
 {
-    auto d = cast(ubyte*) dest;
-    auto s = cast(const(ubyte)*) src;
-    foreach (i; 0 .. n)
-        d[i] = s[i];
+    llvm_memcpy!size_t(dest, src, n, false);
     return dest;
 }
 
 extern (C) void* memset(void* dest, int c, size_t n)
 {
-    auto d = cast(ubyte*) dest;
-    foreach (i; 0 .. n)
-        d[i] = cast(ubyte) c;
+    llvm_memset!size_t(dest, cast(ubyte) c, n, false);
     return dest;
 }
 
 extern (C) void* memmove(void* dest, const(void)* src, size_t n)
 {
-    auto d = cast(ubyte*) dest;
-    auto s = cast(const(ubyte)*) src;
-    if (d < s)
-    {
-        foreach (i; 0 .. n)
-            d[i] = s[i];
-    }
-    else
-    {
-        foreach_reverse (i; 0 .. n)
-            d[i] = s[i];
-    }
+    llvm_memmove!size_t(dest, src, n, false);
     return dest;
 }
 

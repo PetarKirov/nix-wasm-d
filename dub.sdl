@@ -13,7 +13,7 @@ subPackage {
     sourceFiles "src/nix_wasm/builtins/json.d" "src/nix_wasm/package.d" "src/nix_wasm/memory.d"
 
     buildOptions "betterC"
-    dflags "-fvisibility=hidden" platform="ldc"
+    dflags "-fvisibility=hidden" "-mattr=+bulk-memory" platform="ldc"
     lflags "-allow-undefined" "--no-entry" "--export-dynamic" platform="ldc"
 }
 
@@ -26,6 +26,6 @@ subPackage {
     sourceFiles "src/nix_wasm/builtins/strings.d" "src/nix_wasm/package.d" "src/nix_wasm/memory.d"
 
     buildOptions "betterC"
-    dflags "-fvisibility=hidden" platform="ldc"
+    dflags "-fvisibility=hidden" "-mattr=+bulk-memory" platform="ldc"
     lflags "-allow-undefined" "--no-entry" "--export-dynamic" platform="ldc"
 }

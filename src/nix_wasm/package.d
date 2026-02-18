@@ -296,12 +296,10 @@ extern (C) void _d_array_slice_copy(void* dst, size_t dstLen, const(void)* src,
 }
 
 // D betterC assert handler
-extern (C) void __assert(const(char)* msg, const(char)* file, int line)
+extern (C) noreturn __assert(const(char)* msg, const(char)* file, int line)
 {
     panic("assertion failure".ptr, "assertion failure".length);
-    while (true)
-    {
-    }
+    assert(0);
 }
 
 extern (C) int memcmp(const(void)* s1, const(void)* s2, size_t n)
@@ -351,12 +349,10 @@ extern (C) void* memmove(void* dest, const(void)* src, size_t n)
 }
 
 /// Aborts execution with a message sent to the Nix host.
-void nixPanic(string msg)
+noreturn nixPanic(string msg)
 {
     panic(msg.ptr, msg.length);
-    while (true)
-    {
-    } // panic is noreturn but D doesn't know that
+    assert(0);
 }
 
 /// Sends a warning message to the Nix host.
